@@ -14,12 +14,13 @@ import (
 
 // Структура для хранения данных о спреде
 type SpreadData struct {
-	Symbol        string  `json:"symbol"`
-	BestBid       float64 `json:"best_bid"`
-	BestAsk       float64 `json:"best_ask"`
-	SpreadPercent float64 `json:"spread_percent"`
-	AbsoluteDiff  float64 `json:"absolute_diff"`
-	LastUpdate    int64   `json:"last_update"`
+	Symbol        string  `json:"Symbol"`
+	BestBid       float64 `json:"BestBid"`
+	BestAsk       float64 `json:"BestAsk"`
+	SpreadPercent float64 `json:"SpreadPercent"`
+	AbsoluteDiff  float64 `json:"AbsoluteDiff"`
+	Volume24h     float64 `json:"Volume24h"`
+	LastUpdate    string  `json:"LastUpdate"`
 }
 
 // Структура сервера
@@ -51,10 +52,15 @@ func (s *Server) cleanupOldData() {
 	defer ticker.Stop()
 
 	for range ticker.C {
-		now := time.Now().Unix()
+		now := time.Now()
 		s.mu.Lock()
 		for symbol, data := range s.spreadsData {
-			if now-data.LastUpdate > 300 { // 5 минут
+			lastUpdate, err := time.Parse(time.RFC3339, data.LastUpdate)
+			if err != nil {
+				log.Printf("Ошибка парсинга времени для %s: %v", symbol, err)
+				continue
+			}
+			if now.Sub(lastUpdate) > 5*time.Minute {
 				delete(s.spreadsData, symbol)
 				log.Printf("Удалены устаревшие данные для %s", symbol)
 			}
@@ -133,18 +139,18 @@ func (s *Server) handleWebSocket(c *gin.Context) {
 // Рассылка данных всем подключенным клиентам
 func (s *Server) broadcastSpreads() {
 	for spreads := range s.spreadChan {
-		now := time.Now().Unix()
-
 		// Обновляем данные
 		s.mu.Lock()
 		for _, spread := range spreads {
+			log.Printf("Получены данные для %s: объем = %.2f", spread.Symbol, spread.Volume24h)
 			s.spreadsData[spread.Symbol] = &SpreadData{
 				Symbol:        spread.Symbol,
 				BestBid:       spread.BestBid,
 				BestAsk:       spread.BestAsk,
 				SpreadPercent: spread.SpreadPercent,
 				AbsoluteDiff:  spread.AbsoluteDiff,
-				LastUpdate:    now,
+				Volume24h:     spread.Volume24h,
+				LastUpdate:    time.Now().Format(time.RFC3339),
 			}
 		}
 

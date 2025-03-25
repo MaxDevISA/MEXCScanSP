@@ -105,3 +105,31 @@ func (m *MexcREST) GetOrderBook(symbol string, limit int) (*OrderBook, error) {
 
 	return &data, nil
 }
+
+// Stats24H представляет 24-часовую статистику
+type Stats24H struct {
+	Volume string `json:"volume"`
+}
+
+// Get24HStats получает 24-часовую статистику для пары
+func (m *MexcREST) Get24HStats(symbol string) (*Stats24H, error) {
+	url := fmt.Sprintf("%s/api/v3/ticker/24hr?symbol=%s", m.baseURL, symbol)
+
+	resp, err := m.httpClient.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("ошибка запроса к API: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("ошибка чтения ответа: %v", err)
+	}
+
+	var data Stats24H
+	if err := json.Unmarshal(body, &data); err != nil {
+		return nil, fmt.Errorf("ошибка парсинга JSON: %v", err)
+	}
+
+	return &data, nil
+}

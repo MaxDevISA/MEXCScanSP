@@ -39,6 +39,25 @@
         th {
             background-color: #f8f9fa;
             font-weight: bold;
+            cursor: pointer;
+            user-select: none;
+            position: relative;
+        }
+        th:hover {
+            background-color: #e9ecef;
+        }
+        th::after {
+            content: '';
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+        th.sort-asc::after {
+            content: '▲';
+        }
+        th.sort-desc::after {
+            content: '▼';
         }
         tr:nth-child(even) {
             background-color: #f8f9fa;
@@ -92,11 +111,13 @@
         <table id="spreadTable">
             <thead>
                 <tr>
-                    <th>Монета</th>
-                    <th>Лучший бид</th>
-                    <th>Лучший аск</th>
-                    <th>Спред (%)</th>
-                    <th>Абс. разница</th>
+                    <th data-sort="Symbol">Монета</th>
+                    <th data-sort="BestBid">Лучший бид</th>
+                    <th data-sort="BestAsk">Лучший аск</th>
+                    <th data-sort="SpreadPercent">Спред (%)</th>
+                    <th data-sort="AbsoluteDiff">Абс. разница</th>
+                    <th data-sort="Volume24h">Объем 24ч (USDT)</th>
+                    <th data-sort="LastUpdate">Последнее обновление</th>
                 </tr>
             </thead>
             <tbody id="spreadData">
@@ -116,6 +137,82 @@
         const maxReconnectAttempts = 5;
         const reconnectDelay = 5000; // 5 секунд
         let isConnecting = false;
+        let currentSort = {
+            column: 'SpreadPercent',
+            direction: 'desc'
+        };
+
+        // Функция сортировки данных
+        function sortData(data, column, direction) {
+            return [...data].sort((a, b) => {
+                let aVal = a[column];
+                let bVal = b[column];
+                
+                // Преобразуем строковые числа в числовые значения
+                if (column !== 'Symbol' && column !== 'LastUpdate') {
+                    aVal = parseFloat(aVal) || 0;
+                    bVal = parseFloat(bVal) || 0;
+                }
+                
+                if (direction === 'asc') {
+                    return aVal > bVal ? 1 : aVal < bVal ? -1 : 0;
+                } else {
+                    return aVal < bVal ? 1 : aVal > bVal ? -1 : 0;
+                }
+            });
+        }
+
+        // Обновление UI с отсортированными данными
+        function updateTable(data) {
+            const tbody = document.getElementById('spreadData');
+            tbody.innerHTML = '';
+            
+            // Сортируем данные
+            const sortedData = sortData(data, currentSort.column, currentSort.direction);
+            
+            sortedData.forEach(item => {
+                const row = document.createElement('tr');
+                const spreadClass = item.SpreadPercent >= 5 ? 'high-spread' : 'low-spread';
+                
+                row.innerHTML = `
+                    <td>${item.Symbol || '-'}</td>
+                    <td>${(item.BestBid || 0).toFixed(8)}</td>
+                    <td>${(item.BestAsk || 0).toFixed(8)}</td>
+                    <td class="${spreadClass}">${(item.SpreadPercent || 0).toFixed(2)}%</td>
+                    <td>${(item.AbsoluteDiff || 0).toFixed(8)}</td>
+                    <td>${(item.Volume24h || 0).toFixed(2)}</td>
+                    <td>${item.LastUpdate || '-'}</td>
+                `;
+                tbody.appendChild(row);
+            });
+
+            // Обновляем индикаторы сортировки в заголовках
+            document.querySelectorAll('th').forEach(th => {
+                th.classList.remove('sort-asc', 'sort-desc');
+                if (th.dataset.sort === currentSort.column) {
+                    th.classList.add(`sort-${currentSort.direction}`);
+                }
+            });
+        }
+
+        // Инициализация сортировки по клику на заголовки
+        document.querySelectorAll('th').forEach(th => {
+            th.addEventListener('click', () => {
+                const column = th.dataset.sort;
+                if (currentSort.column === column) {
+                    currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+                } else {
+                    currentSort.column = column;
+                    currentSort.direction = 'desc';
+                }
+                
+                // Если есть текущие данные, пересортируем их
+                const tbody = document.getElementById('spreadData');
+                if (tbody.lastData) {
+                    updateTable(tbody.lastData);
+                }
+            });
+        });
 
         function connect() {
             if (isConnecting) {
@@ -144,8 +241,9 @@
             ws.onmessage = function(event) {
                 try {
                     const data = JSON.parse(event.data);
-                    const tbody = document.getElementById('spreadData');
-                    tbody.innerHTML = '';
+                    
+                    // Сохраняем данные для возможности пересортировки
+                    document.getElementById('spreadData').lastData = data;
                     
                     // Обновляем статистику
                     document.getElementById('pairCount').textContent = `Пар: ${data.length}`;
@@ -155,22 +253,8 @@
                     document.getElementById('lastUpdate').textContent = 
                         `Последнее обновление: ${now.toLocaleString()}`;
                     
-                    // Сортируем данные по спреду (по убыванию)
-                    data.sort((a, b) => b.spread_percent - a.spread_percent);
-                    
-                    data.forEach(item => {
-                        const row = document.createElement('tr');
-                        const spreadClass = item.spread_percent >= 5 ? 'high-spread' : 'low-spread';
-                        
-                        row.innerHTML = `
-                            <td>${item.symbol}</td>
-                            <td>${item.best_bid.toFixed(8)}</td>
-                            <td>${item.best_ask.toFixed(8)}</td>
-                            <td class="${spreadClass}">${item.spread_percent.toFixed(2)}%</td>
-                            <td>${item.absolute_diff.toFixed(8)}</td>
-                        `;
-                        tbody.appendChild(row);
-                    });
+                    // Обновляем таблицу с учетом текущей сортировки
+                    updateTable(data);
                 } catch (error) {
                     console.error('Ошибка обработки данных:', error);
                 }

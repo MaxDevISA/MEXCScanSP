@@ -2,9 +2,11 @@ package types
 
 // SpreadData представляет данные о спреде
 type SpreadData struct {
-	Symbol        string  `json:"symbol"`
-	BestBid       float64 `json:"best_bid"`
-	BestAsk       float64 `json:"best_ask"`
-	SpreadPercent float64 `json:"spread_percent"`
-	AbsoluteDiff  float64 `json:"absolute_diff"`
+	Symbol        string  `json:"Symbol"`
+	BestBid       float64 `json:"BestBid"`
+	BestAsk       float64 `json:"BestAsk"`
+	SpreadPercent float64 `json:"SpreadPercent"`
+	AbsoluteDiff  float64 `json:"AbsoluteDiff"`
+	Volume24h     float64 `json:"Volume24h"`
+	LastUpdate    string  `json:"LastUpdate"`
 }

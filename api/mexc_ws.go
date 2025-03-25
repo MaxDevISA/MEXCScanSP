@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"mexc-scanner/types"
+	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -79,6 +81,37 @@ func (m *MexcWS) SubscribeToOrderBooks() error {
 	return nil
 }
 
+// get24hVolume получает объем торгов за 24 часа для пары
+func (m *MexcWS) get24hVolume(symbol string) (float64, error) {
+	url := fmt.Sprintf("https://api.mexc.com/api/v3/ticker/24hr?symbol=%s", symbol)
+	log.Printf("Запрос объема для %s: %s", symbol, url)
+
+	resp, err := http.Get(url)
+	if err != nil {
+		return 0, fmt.Errorf("ошибка HTTP запроса: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Volume      string `json:"volume"`
+		QuoteVolume string `json:"quoteVolume"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return 0, fmt.Errorf("ошибка декодирования JSON: %v", err)
+	}
+
+	log.Printf("Получен ответ для %s: volume = %s, quoteVolume = %s", symbol, result.Volume, result.QuoteVolume)
+
+	volume, err := strconv.ParseFloat(result.QuoteVolume, 64)
+	if err != nil {
+		return 0, fmt.Errorf("ошибка конвертации объема '%s' в число: %v", result.QuoteVolume, err)
+	}
+
+	log.Printf("Успешно получен объем для %s: %.2f USDT", symbol, volume)
+	return volume, nil
+}
+
 // calculateSpread вычисляет спред для пары
 func (m *MexcWS) calculateSpread(symbol string, orderBook *OrderBook) types.SpreadData {
 	if len(orderBook.Bids) == 0 || len(orderBook.Asks) == 0 {
@@ -97,12 +130,23 @@ func (m *MexcWS) calculateSpread(symbol string, orderBook *OrderBook) types.Spre
 	spreadPercent := ((bestAsk - bestBid) / bestBid) * 100
 	absoluteDiff := bestAsk - bestBid
 
+	// Получаем объем за 24 часа
+	log.Printf("Запрашиваем объем для пары %s", symbol)
+	volume24h, err := m.get24hVolume(symbol)
+	if err != nil {
+		log.Printf("Ошибка получения объема для %s: %v", symbol, err)
+		volume24h = 0
+	}
+	log.Printf("Получен объем для пары %s: %.2f", symbol, volume24h)
+
 	return types.SpreadData{
 		Symbol:        symbol,
 		BestBid:       bestBid,
 		BestAsk:       bestAsk,
 		SpreadPercent: spreadPercent,
 		AbsoluteDiff:  absoluteDiff,
+		Volume24h:     volume24h,
+		LastUpdate:    time.Now().Format(time.RFC3339),
 	}
 }
 
@@ -162,8 +206,6 @@ func (m *MexcWS) ListenAndCalculateSpread() {
 				continue
 			}
 
-			log.Printf("Получено сообщение: %s", string(message))
-
 			var data struct {
 				C string `json:"c"` // Channel
 				D struct {
@@ -186,8 +228,6 @@ func (m *MexcWS) ListenAndCalculateSpread() {
 				log.Printf("Ошибка парсинга сообщения: %v, сообщение: %s", err, string(message))
 				continue
 			}
-
-			log.Printf("Распарсенные данные: %+v", data)
 
 			symbol := data.S
 			if symbol == "" {
@@ -217,8 +257,6 @@ func (m *MexcWS) ListenAndCalculateSpread() {
 			m.mu.Lock()
 			m.orderBooks[symbol] = orderBook
 			m.mu.Unlock()
-
-			log.Printf("Обновлен стакан для %s: %d bids, %d asks", symbol, len(orderBook.Bids), len(orderBook.Asks))
 
 			spread := m.calculateSpread(symbol, orderBook)
 			if spread.SpreadPercent >= m.minSpread {
