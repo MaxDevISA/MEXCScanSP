@@ -2,15 +2,27 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"mexc-scanner/api"
 	"mexc-scanner/web"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 
 	"github.com/spf13/viper"
 )
+
+type SpreadData struct {
+	Symbol        string  `json:"Symbol"`
+	BestBid       float64 `json:"BestBid"`
+	BestAsk       float64 `json:"BestAsk"`
+	SpreadPercent float64 `json:"SpreadPercent"`
+	AbsoluteDiff  float64 `json:"AbsoluteDiff"`
+	Volume24h     float64 `json:"Volume24h"`
+	LastUpdate    string  `json:"LastUpdate"`
+}
 
 func main() {
 	// Загрузка конфигурации
@@ -71,4 +83,18 @@ func main() {
 
 	log.Println("Завершение работы...")
 	wsClient.Close()
+}
+
+func get24hVolume(client *api.MexcREST, symbol string) (float64, error) {
+	stats, err := client.Get24HStats(symbol)
+	if err != nil {
+		return 0, fmt.Errorf("ошибка при получении 24h статистики: %v", err)
+	}
+
+	volume, err := strconv.ParseFloat(stats.Volume, 64)
+	if err != nil {
+		return 0, fmt.Errorf("ошибка при конвертации объема '%s' в число: %v", stats.Volume, err)
+	}
+
+	return volume, nil
 }
