@@ -1,0 +1,13 @@
+mexc:
+  rest_url: "https://api.mexc.com"
+  ws_url: "wss://wbs.mexc.com/ws"
+  min_spread: 0.3  # Минимальный спред в процентах
+  update_interval: 1  # Интервал обновления в секундах
+
+server:
+  host: "0.0.0.0"
+  port: "8080"
+
+logging:
+  file: "scanner.log"
+  level: "info" 

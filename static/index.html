@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>MEXC Spread Scanner</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .stats {
+            font-size: 14px;
+            color: #666;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border: 1px solid #ddd;
+        }
+        th {
+            background-color: #f8f9fa;
+            font-weight: bold;
+        }
+        tr:nth-child(even) {
+            background-color: #f8f9fa;
+        }
+        .high-spread {
+            color: #dc3545;
+            font-weight: bold;
+        }
+        .low-spread {
+            color: #28a745;
+        }
+        .timestamp {
+            font-size: 12px;
+            color: #666;
+            margin-top: 10px;
+        }
+        .loading {
+            text-align: center;
+            padding: 20px;
+            font-style: italic;
+            color: #666;
+        }
+        .connection-status {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            z-index: 1000;
+        }
+        .connected {
+            background-color: #28a745;
+            color: white;
+        }
+        .disconnected {
+            background-color: #dc3545;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>MEXC Spread Scanner</h1>
+            <div class="stats">
+                <span id="pairCount">Пар: 0</span> |
+                <span id="updateTime">Обновлено: -</span>
+            </div>
+        </div>
+        <table id="spreadTable">
+            <thead>
+                <tr>
+                    <th>Монета</th>
+                    <th>Лучший бид</th>
+                    <th>Лучший аск</th>
+                    <th>Спред (%)</th>
+                    <th>Абс. разница</th>
+                </tr>
+            </thead>
+            <tbody id="spreadData">
+                <tr>
+                    <td colspan="5" class="loading">Загрузка данных...</td>
+                </tr>
+            </tbody>
+        </table>
+        <div class="timestamp" id="lastUpdate"></div>
+    </div>
+
+    <div id="connectionStatus" class="connection-status disconnected">Отключено</div>
+
+    <script>
+        let ws = null;
+        let reconnectAttempts = 0;
+        const maxReconnectAttempts = 5;
+        const reconnectDelay = 5000; // 5 секунд
+        let isConnecting = false;
+
+        function connect() {
+            if (isConnecting) {
+                console.log('Уже идет подключение...');
+                return;
+            }
+
+            if (ws) {
+                console.log('Закрытие существующего соединения');
+                ws.close();
+            }
+
+            isConnecting = true;
+            console.log('Попытка подключения к WebSocket...');
+
+            ws = new WebSocket(`ws://${window.location.host}/ws`);
+            
+            ws.onopen = function() {
+                console.log('WebSocket соединение установлено');
+                document.getElementById('connectionStatus').className = 'connection-status connected';
+                document.getElementById('connectionStatus').textContent = 'Подключено';
+                reconnectAttempts = 0;
+                isConnecting = false;
+            };
+
+            ws.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    const tbody = document.getElementById('spreadData');
+                    tbody.innerHTML = '';
+                    
+                    // Обновляем статистику
+                    document.getElementById('pairCount').textContent = `Пар: ${data.length}`;
+                    const now = new Date();
+                    document.getElementById('updateTime').textContent = 
+                        `Обновлено: ${now.toLocaleTimeString()}`;
+                    document.getElementById('lastUpdate').textContent = 
+                        `Последнее обновление: ${now.toLocaleString()}`;
+                    
+                    // Сортируем данные по спреду (по убыванию)
+                    data.sort((a, b) => b.spread_percent - a.spread_percent);
+                    
+                    data.forEach(item => {
+                        const row = document.createElement('tr');
+                        const spreadClass = item.spread_percent >= 5 ? 'high-spread' : 'low-spread';
+                        
+                        row.innerHTML = `
+                            <td>${item.symbol}</td>
+                            <td>${item.best_bid.toFixed(8)}</td>
+                            <td>${item.best_ask.toFixed(8)}</td>
+                            <td class="${spreadClass}">${item.spread_percent.toFixed(2)}%</td>
+                            <td>${item.absolute_diff.toFixed(8)}</td>
+                        `;
+                        tbody.appendChild(row);
+                    });
+                } catch (error) {
+                    console.error('Ошибка обработки данных:', error);
+                }
+            };
+
+            ws.onclose = function(event) {
+                console.log('WebSocket соединение закрыто:', event.code, event.reason);
+                document.getElementById('connectionStatus').className = 'connection-status disconnected';
+                document.getElementById('connectionStatus').textContent = 'Отключено';
+                isConnecting = false;
+                
+                // Пытаемся переподключиться
+                if (reconnectAttempts < maxReconnectAttempts) {
+                    reconnectAttempts++;
+                    console.log(`Попытка переподключения ${reconnectAttempts}/${maxReconnectAttempts}`);
+                    setTimeout(connect, reconnectDelay);
+                } else {
+                    console.log('Превышено максимальное количество попыток переподключения');
+                    document.getElementById('connectionStatus').textContent = 'Ошибка подключения';
+                }
+            };
+
+            ws.onerror = function(error) {
+                console.error('WebSocket ошибка:', error);
+                isConnecting = false;
+            };
+        }
+
+        // Начальное подключение
+        connect();
+
+        // Переподключение при потере фокуса окна
+        window.addEventListener('focus', function() {
+            if (ws && ws.readyState !== WebSocket.OPEN && !isConnecting) {
+                console.log('Переподключение при возвращении фокуса');
+                connect();
+            }
+        });
+
+        // Обработка закрытия страницы
+        window.addEventListener('beforeunload', function() {
+            if (ws) {
+                ws.close();
+            }
+        });
+    </script>
+</body>
+</html> 
